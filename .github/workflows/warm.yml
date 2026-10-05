@@ -1,0 +1,29 @@
+name: Warm cache
+on:
+  schedule:
+    - cron: '17 */2 * * *'
+  workflow_dispatch:
+    inputs:
+      site:
+        description: 'Site to warm'
+        default: 'https://trailmatesadventures.com'
+jobs:
+  warm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Warm pages
+        env:
+          SITE: ${{ github.event.inputs.site || 'https://trailmatesadventures.com' }}
+        run: |
+          UA="Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
+          urls="$SITE/"
+          for m in $(curl -s -A "$UA" "$SITE/sitemap_index.xml" | grep -o '<loc>[^<]*</loc>' | sed 's/<[^>]*>//g'); do
+            urls="$urls $(curl -s -A "$UA" "$m" | grep -o '<loc>[^<]*</loc>' | sed 's/<[^>]*>//g' | grep -v -E '\.(jpg|jpeg|png|webp|gif)$' | grep -v -E 'cart|checkout|my-account|wishlist')"
+          done
+          echo "$urls" | tr ' ' '\n' | sort -u | grep -v '^$' | head -150 > urls.txt
+          wc -l urls.txt
+          while read -r u; do
+            curl -s -o /dev/null -A "$UA" -H "Accept: text/html" -D - -w "" "$u" | awk -v u="$u" 'tolower($1)=="x-scout-cache:"{c=$2} /^HTTP/{s=$2} END{print s, c, u}'
+            sleep 0.5
+          done < urls.txt
